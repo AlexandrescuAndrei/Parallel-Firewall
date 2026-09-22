@@ -6,7 +6,7 @@ The project implements a producer-consumer system in which packets are read from
 
 The main focus of the project is concurrent programming in C, especially thread synchronization, shared data structures, condition variables, and coordinating multiple workers while preserving the correct order of the final output.
 
-# How It Works
+## How It Works
 
 Packets have a fixed size of 256 bytes and contain a source address, destination address, timestamp, and payload.
 
@@ -16,7 +16,7 @@ For every packet, a consumer applies the filtering logic, computes a hash based 
 
 The number of consumers is configurable when the application is started, with support for between 1 and 32 worker threads.
 
-# Concurrency and Synchronization
+## Concurrency and Synchronization
 
 The ring buffer is shared between the producer and all consumer threads, so access to it is synchronized using POSIX thread primitives.
 
@@ -26,7 +26,7 @@ When the buffer is empty, consumers wait until new packets become available. Whe
 
 After the producer reaches the end of the input file, it marks the ring buffer as stopped and wakes any waiting consumers. The consumers finish processing the packets that are still available and then terminate. The main thread waits for all of them using `pthread_join`.
 
-# Packet Processing and Ordered Output
+## Packet Processing and Ordered Output
 
 The firewall decision is based on the source address of each packet. The implementation contains a number of allowed source-address ranges, and packets are classified as **PASS** when their source belongs to one of these ranges. All other packets are classified as **DROP**.
 
@@ -36,7 +36,7 @@ Because multiple consumers process packets concurrently, they are not guaranteed
 
 This keeps the packet-processing work parallel while still producing the expected output order.
 
-# Serial and Parallel Implementations
+## Serial and Parallel Implementations
 
 The repository contains both a parallel and a serial version of the packet processor.
 
@@ -46,7 +46,7 @@ The serial implementation performs the same packet filtering and hashing operati
 
 Keeping both implementations in the project provides a straightforward sequential reference alongside the multithreaded solution.
 
-# Project Structure
+## Project Structure
 
 - `firewall.c` — main parallel application, initialization, and thread management
 - `producer.c` / `producer.h` — reads packets from the input file and publishes them to the ring buffer
@@ -56,7 +56,7 @@ Keeping both implementations in the project provides a straightforward sequentia
 - `serial.c` — sequential implementation of the packet processor
 - `Makefile` — build configuration
 
-# Build and Run
+## Build and Run
 
 The project is built using **GCC**, **GNU Make**, and the POSIX Threads library.
 
@@ -68,7 +68,7 @@ The serial version can be executed using `./serial <input-file> <output-file>`.
 
 The current Makefile also references shared utility and logging files through the `UTILS_PATH` variable.
 
-# Technologies and Concepts
+## Technologies and Concepts
 
 - C
 - POSIX Threads (`pthread`)
