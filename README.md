@@ -2,134 +2,83 @@
 
 A multithreaded packet-processing application written in **C** using **POSIX threads**.
 
-The program reads packets from an input file, processes them concurrently using multiple worker threads, and writes the results to an output file. Each packet is classified as either `PASS` or `DROP`, assigned a hash, and associated with its original timestamp.
+The project implements a producer-consumer system in which packets are read from an input file, placed into a shared ring buffer, and processed concurrently by multiple consumer threads. Each packet is analyzed, classified as either **PASS** or **DROP**, assigned a hash, and written to an output file together with its timestamp.
 
-The project focuses mainly on multithreading, synchronization, and the producer-consumer model.
+The main focus of the project is concurrent programming in C, especially thread synchronization, shared data structures, condition variables, and coordinating multiple workers while preserving the correct order of the final output.
 
 ## How It Works
 
-Packets are read from the input file by a producer and inserted into a shared ring buffer.
-
-Several consumer threads run in parallel and continuously retrieve packets from this buffer. Each consumer processes a packet independently by determining whether it should be accepted or dropped and by computing its hash.
-
-The final result written for each packet contains:
-
-- the firewall decision (`PASS` or `DROP`)
-- the packet hash
-- the packet timestamp
-
 Packets have a fixed size of 256 bytes and contain a source address, destination address, timestamp, and payload.
 
-The number of consumer threads can be selected when starting the program, with support for up to 32 consumers.
+A producer reads these packets from the input file and publishes them into a shared ring buffer. Several consumer threads continuously retrieve packets from the buffer and process them independently.
+
+For every packet, a consumer applies the filtering logic, computes a hash based on the packet contents, and prepares the result that will be written to the output file.
+
+The number of consumers is configurable when the application is started, with support for between 1 and 32 worker threads.
 
 ## Concurrency and Synchronization
 
-The shared ring buffer is protected using POSIX synchronization primitives.
+The ring buffer is shared between the producer and all consumer threads, so access to it is synchronized using POSIX thread primitives.
 
-A `pthread_mutex_t` protects access to the buffer, while condition variables are used to coordinate the producer and consumers:
+A `pthread_mutex_t` protects the internal state of the buffer, while the `not_empty` and `not_full` condition variables coordinate the producer and consumers.
 
-- consumers wait when the buffer is empty
-- the producer waits when the buffer is full
-- waiting threads are notified when new data becomes available or buffer space is released
+When the buffer is empty, consumers wait until new packets become available. When the buffer is full, the producer waits until one of the consumers removes data and creates free space. This allows the threads to block efficiently instead of continuously checking the state of the buffer.
 
-This avoids busy waiting and allows the threads to sleep until they can continue useful work.
+After the producer reaches the end of the input file, it marks the ring buffer as stopped and wakes any waiting consumers. The consumers finish processing the packets that are still available and then terminate. The main thread waits for all of them using `pthread_join`.
 
-The producer signals the end of the input stream once all packets have been inserted, allowing the consumer threads to finish processing the remaining packets and terminate cleanly.
+## Packet Processing and Ordered Output
 
-## Ordered Output
+The firewall decision is based on the source address of each packet. The implementation contains a number of allowed source-address ranges, and packets are classified as **PASS** when their source belongs to one of these ranges. All other packets are classified as **DROP**.
 
-Packet processing happens in parallel, which means different consumer threads may finish their work in a different order.
+A hash is also calculated for every packet using its complete contents.
 
-The output still needs to follow the expected packet ordering, so the consumers use additional synchronization before writing results to the output file.
+Because multiple consumers process packets concurrently, they are not guaranteed to finish in the same order in which the packets were received. Additional synchronization is therefore used before writing the results so that the output remains ordered and deterministic.
 
-This allows the expensive packet-processing work to happen concurrently while keeping the final output deterministic.
+This keeps the packet-processing work parallel while still producing the expected output order.
 
-## Packet Filtering
+## Serial and Parallel Implementations
 
-Each packet is checked against a set of allowed source-address ranges.
+The repository contains both a parallel and a serial version of the packet processor.
 
-If the packet source belongs to one of the accepted ranges, the packet is marked as:
+The parallel implementation uses the producer-consumer model, a synchronized ring buffer, and multiple worker threads.
 
-```text
-PASS
-```
+The serial implementation performs the same packet filtering and hashing operations one packet at a time, without using multiple threads.
 
-Otherwise it is marked as:
-
-```text
-DROP
-```
-
-A hash is also calculated for every packet using its complete 256-byte contents.
-
-The output format is:
-
-```text
-ACTION HASH TIMESTAMP
-```
-
-## Serial and Parallel Versions
-
-The repository contains both a parallel and a serial implementation.
-
-The parallel version uses a producer thread workflow together with multiple consumer threads and a synchronized ring buffer.
-
-The serial version processes packets one at a time without worker threads.
-
-Having both versions makes it possible to compare a straightforward sequential implementation with the multithreaded producer-consumer approach.
+Keeping both implementations in the project provides a straightforward sequential reference alongside the multithreaded solution.
 
 ## Project Structure
 
-- `firewall.c` - main parallel application and consumer thread coordination
-- `producer.c` / `producer.h` - reads packets and publishes them to the ring buffer
-- `consumer.c` / `consumer.h` - creates worker threads and processes packets
-- `ring_buffer.c` / `ring_buffer.h` - synchronized shared ring buffer
-- `packet.c` / `packet.h` - packet structure, filtering rules, and hashing
-- `serial.c` - sequential version of the packet processor
-- `Makefile` - build configuration
+- `firewall.c` — main parallel application, initialization, and thread management
+- `producer.c` / `producer.h` — reads packets from the input file and publishes them to the ring buffer
+- `consumer.c` / `consumer.h` — creates consumer threads and handles packet processing and output synchronization
+- `ring_buffer.c` / `ring_buffer.h` — synchronized ring buffer shared between the producer and consumers
+- `packet.c` / `packet.h` — packet representation, filtering rules, and hashing
+- `serial.c` — sequential implementation of the packet processor
+- `Makefile` — build configuration
 
-## Build
+## Build and Run
 
-The project uses GCC, GNU Make, and POSIX threads.
+The project is built using **GCC**, **GNU Make**, and the POSIX Threads library.
 
-```bash
-make
-```
+Running `make` builds both the `firewall` and `serial` executables.
 
-This builds two executables:
+The parallel version is executed using `./firewall <input-file> <output-file> <num-consumers>`, where the number of consumer threads must be between 1 and 32.
 
-```text
-firewall
-serial
-```
+The serial version can be executed using `./serial <input-file> <output-file>`.
 
-The parallel version is started with:
-
-```bash
-./firewall <input-file> <output-file> <num-consumers>
-```
-
-where `num-consumers` must be between 1 and 32.
-
-The serial version is started with:
-
-```bash
-./serial <input-file> <output-file>
-```
-
-The current Makefile also expects the shared utility and logging files referenced through `UTILS_PATH`.
+The current Makefile also references shared utility and logging files through the `UTILS_PATH` variable.
 
 ## Technologies and Concepts
 
 - C
 - POSIX Threads (`pthread`)
-- Mutexes
-- Condition variables
-- Producer-consumer pattern
-- Ring buffers
 - Multithreading
+- Producer-consumer pattern
+- Mutexes and condition variables
+- Ring buffers
 - Thread synchronization
 - Shared-memory communication
+- Ordered concurrent processing
 - Low-level file I/O
 - GCC
 - GNU Make
